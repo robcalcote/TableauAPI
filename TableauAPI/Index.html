@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta http-equiv="X-UA-Compatible" content="ie=edge">
+        <title>Tableau JavaScript API tutorial</title>
+
+        <!-- Link to the Tableau Public JavaScript API -->
+        <script type="text/javascript" src="https://public.tableau.com/javascripts/api/tableau-2.0.0.min.js"></script>
+        <!-- Link to the JavaScript Tutorial (inserted locally) -->
+        <script type="text/javascript">
+        function getSheetsAlertText(sheets) {
+            var alertText = [];
+
+            for (var i = 0, len = sheets.length; i < len; i++) {
+                var sheet = sheets[i];
+                alertText.push("  Sheet " + i);
+                alertText.push(" (" + sheet.getSheetType() + ")");
+                alertText.push(" - " + sheet.getName());
+                alertText.push("\n");
+            }
+
+            return alertText.join("");
+        }
+        </script>
+        
+        <!-- Local JavaScript -->
+        <script type="text/javascript">
+            // Declare variables
+            var containerDiv, url, options, viz;
+            var workbook, activeSheet;
+            var dashboard, mapSheet, graphSheet;
+
+            /////////////// CREATE ///////////////
+            function initViz() {
+                containerDiv = document.getElementById("vizContainer"),
+                url = "https://public.tableau.com/views/IS415Section1_188/SalesbySub-Category?:embed=y&:display_count=yes";
+
+                options = {
+                    width: 600,
+                    height: 400,
+                    hideTabs: true,
+                    hideToolbar: true,
+                    onFirstInteractive: function () {
+                        workbook = viz.getWorkbook();
+                        activeSheet = workbook.getActiveSheet();
+                        listenToMarksSelection();
+                    }
+                };
+
+                viz = new tableau.Viz(containerDiv, url, options);
+            };
+
+            /////////////// FILTERS ///////////////
+            // Filter to show individual categories
+            function filterSingleValue(Category, Subcategory) {
+                activeSheet.applyFilterAsync(
+                    Category,
+                    Subcategory,
+                    tableau.FilterUpdateType.REPLACE);
+            };
+            // Add Item to current filter
+            function addValuesToFilter(Category, Subcategory) {
+                activeSheet.applyFilterAsync(
+                    Category,
+                    Subcategory,
+                    tableau.FilterUpdateType.ADD);
+            }; 
+            // Remove individual values from the filtered view
+            function removeValuesFromFilter(Category, Subcategory) {
+                activeSheet.applyFilterAsync(
+                    Category,
+                    Subcategory,
+                    tableau.FilterUpdateType.REMOVE);
+            };
+            // Filter a range of sum of sales
+            function filterRangeOfValues() {
+                activeSheet.applyRangeFilterAsync(
+                    "SUM(Sales)",
+                    {min: 0, max: 1000000,},
+                    tableau.FilterUpdateType.REPLACE);
+            }; 
+            // Clear all filters
+            function clearFilters() {
+                activeSheet.clearFilterAsync(
+                    "Category",
+                    ["Furniture", "Office Supplies", "Technology"]);
+                activeSheet.clearFilterAsync("SUM(Sales)");
+            }; 
+
+            /////////////// TABS ///////////////
+            // Switch to other Tab Views
+            function switchToAnotherTab(newTab) {
+                workbook.activateSheetAsync(newTab);
+            };  
+
+            /////////////// SELECT ///////////////
+            // Select Portions of the map
+            function selectSingleValue(Country, Selected) {
+                workbook.getActiveSheet().selectMarksAsync(
+                    Country,
+                    Selected,
+                    tableau.SelectionUpdateType.REPLACE);
+            };
+            // Add Additional values to selected on map
+            function addValuesToSelection(Country, Selected) {
+                workbook.getActiveSheet().selectMarksAsync(
+                    Country,
+                    Selected,
+                    tableau.FilterUpdateType.ADD);
+            };
+            // Filter those countries from selected that have a loss of profit
+            function removeFromSelection() {
+                workbook.getActiveSheet().selectMarksAsync(
+                    "SUM(Profit)",
+                    {min: 0},
+                    tableau.FilterUpdateType.REMOVE);
+            };
+            // clear Selections
+            function clearSelection() {
+                workbook.getActiveSheet().clearSelectedMarksAsync();
+            };
+            
+            /////////////// CHAIN CALLS ///////////////
+            // Chain example (changes to map view and shows the Sales for Canada, Mexico, and the US if over 50k in Sales)
+            function switchTabsThenFilterThenSelectMarks() {
+                workbook.activateSheetAsync("Global Sales and Profits")
+                    .then(function (newSheet) {
+                    activeSheet = newSheet;
+
+                    // It's important to return the promise so the next link in the chain
+                    // won't be called until the filter completes.
+                    return activeSheet.applyRangeFilterAsync(
+                        "SUM(Sales)",
+                        {min: 50000,},
+                        tableau.FilterUpdateType.REPLACE);
+                    })
+                    .then(function (filterFieldName) {
+                    return activeSheet.selectMarksAsync(
+                        "Country",
+                        ["Canada", "United States", "Mexico"],
+                        tableau.SelectionUpdateType.REPLACE);
+                    });
+            };
+            // This intentionally shows an Alertbox for an error in Error Handling
+            function triggerError() {
+                workbook.activateSheetAsync("Global Sales and Profits")
+                    .then(function (newSheet) {
+                    // Do something that will cause an error: leave out required parameters.
+                    return activeSheet.applyFilterAsync("COUNTRY");
+                    })
+                    .otherwise(function (err) {
+                    alert("We purposely triggered this error to show how error handling happens with chained calls.\n\n " + err);
+                    });
+            };
+
+            /////////////// SHEETS ///////////////
+            // Queries Tableau to show all the sheets in the workbook
+            function querySheets() {
+                var sheets = workbook.getPublishedSheetsInfo();
+                var text = getSheetsAlertText(sheets);
+                text = "Sheets in the workbook:\n" + text;
+                alert(text);
+            };
+            // Queries Tableau to show all the sheets in the Dashboard
+            function queryDashboard() {
+                workbook.activateSheetAsync("Dashboard 1")
+                    .then(function (dashboard) {
+                    var worksheets = dashboard.getWorksheets();
+                    var text = getSheetsAlertText(worksheets);
+                    text = "Worksheets in the dashboard:\n" + text;
+                    alert(text);
+                    });
+            };
+            // Resizes the dashboard to fit the allotted size
+            function changeDashboardSize() {
+                workbook.activateSheetAsync("Dashboard 1")
+                    .then(function (dashboard) {
+                        dashboard.changeSizeAsync({behavior: tableau.SheetSizeBehavior.AUTOMATIC});
+                    });
+            };
+            // Does work on multiple sheets simultaneously on the Dashboard
+            function MultipleSelectionsOnDashboard() {
+            workbook.activateSheetAsync("Dashboard 1")
+                .then(function (sheet) {
+                dashboard = sheet;
+                mapSheet = dashboard.getWorksheets().get("Global Sales and Profits");
+                graphSheet = dashboard.getWorksheets().get("Sales by Sub-Category");
+                return mapSheet.applyFilterAsync("Country", "United States", tableau.FilterUpdateType.REPLACE);
+                })
+                .then(function () {
+                // Do these two steps in parallel since they work on different sheets.
+                mapSheet.applyFilterAsync("AVG(Sales)", {min: 500,}, tableau.FilterUpdateType.REPLACE);
+                return graphSheet.applyFilterAsync("Category", "Furniture", tableau.FilterUpdateType.REPLACE);
+                })
+                .then(function () {
+                return graphSheet.selectMarksAsync("Sub-Category (group)", "Tables", tableau.SelectionUpdateType.REPLACE);
+                });
+            };      
+
+            /////////////// TOOLBAR ///////////////
+            // Allows the user to export the CURRENT TAB as a PDF
+            function exportPDF() {
+                viz.showExportPDFDialog();
+            };
+            // Allows the user to export the CURRENT TAB as an Image
+            function exportImage() {
+                viz.showExportImageDialog();
+            };
+            // Allows the user to export the DATA as a CSV
+            function exportCrossTab() {
+                viz.showExportCrossTabDialog();
+            };
+            // Allows the user to export the SHEET as Data
+            function exportData() {
+                viz.showExportDataDialog();
+            };
+            // Will revert the workbook to it's Original Published State
+            function revertAll() {
+                workbook.revertAllAsync();
+            };
+
+            /////////////// EVENTS ///////////////
+            // Displays the data about the selected Items below the Viz
+            function listenToMarksSelection() {
+                viz.addEventListener(tableau.TableauEventName.MARKS_SELECTION, onMarksSelection);
+            };
+            function onMarksSelection(marksEvent) {
+                return marksEvent.getMarksAsync().then(reportSelectedMarks);
+            };
+            function reportSelectedMarks(marks) {
+                var html = "";
+                for (var markIndex = 0; markIndex < marks.length; markIndex++) {
+                    var pairs = marks[markIndex].getPairs();
+                    html += "<b>Mark " + markIndex + ":</b><ul>";
+                    for (var pairIndex = 0; pairIndex < pairs.length; pairIndex++) {
+                        var pair = pairs[pairIndex];
+                        html += "<li><b>Field Name:</b> " + pair.fieldName;
+                        html += "<br/><b>Value:</b> " + pair.formattedValue + "</li>";
+                    };
+                    html += "</ul>";
+                };
+                var infoDiv = document.getElementById('markDetails');
+                infoDiv.innerHTML = html;
+            };
+        </script>
+    </head>
+
+
+    <!-- Beginning of HTML -->
+
+
+    <body onload="initViz();">
+        <div id="Filters" style="float:left;">
+                <h2><u>Tableau JavaScript API</u> (1 point for create section)</h3>
+
+                <!-- /////////////// FILTERS /////////////// -->
+                <!-- Filter to show values of individual categories by sub category -->
+                <div id="SectionHeader" style="padding-top: 5px;">
+                    <u>(5 points) FILTER SECTION</u> (Must be on 'Sub-Category' tab)
+                </div>
+                <div id="FilterCategory" style="padding-top: 5px;">
+                    Show 1 Category:
+                    <input type="button" value="Furniture" onclick="filterSingleValue('Category', 'Furniture');" />
+                    <input type="button" value="Office Supplies" onclick="filterSingleValue('Category', 'Office Supplies');" />
+                    <input type="button" value="Technology" onclick="filterSingleValue('Category', 'Technology');" />
+                </div>   
+                <!-- Adds another Subcategory to the currently filtered view -->
+                <div id="AddCategory" style="padding-top: 5px;">
+                    Add 1 Category:
+                    <input type="button" value="Add Furniture" onclick="addValuesToFilter('Category', 'Furniture');" />
+                    <input type="button" value="Add Office Supplies" onclick="addValuesToFilter('Category', 'Office Supplies');" />
+                    <input type="button" value="Add Technology" onclick="addValuesToFilter('Category', 'Technology');" />
+                </div>         
+                <!-- Filter to remove values of individual categories -->
+                <div id="RemoveCategory" style="padding-top: 5px;">
+                    Remove Categories:
+                    <input type="button" value="Remove Furniture" onclick="removeValuesFromFilter('Category', 'Furniture');" />
+                    <input type="button" value="Remove Office Supplies" onclick="removeOfficeSupplies('Category', 'Office Supplies');" />
+                    <input type="button" value="Remove Technology" onclick="removeTechnology('Category', 'Technology');" />
+                </div>
+                <!-- Filter a range of sum of sales -->
+                <div id="FilterRange" style="padding-top: 5px;">
+                    Filter Range:
+                    <input type="button" value="Filter Range" onclick="filterRangeOfValues();" />
+                </div>
+                <!-- Remove all filters and return Tableau viz to original display -->
+                <div id="ClearFilters" style="padding-top: 5px;">
+                    Clear Filters:
+                    <input type="button" value="Clear Filters" onclick="clearFilters();" />
+                </div>
+                <br />
+    
+                <!-- /////////////// TABS /////////////// -->
+                <!-- Change the view to another Tab -->
+                <div id="SectionHeader" style="padding-top: 5px;">
+                    <u>(1 point) TABS SECTION</u> (Can be from any tab)
+                </div>
+                <!-- Select the Tab to change to -->
+                <div id="Tabs" style="padding-top: 5px;">
+                    Show Tabs:
+                    <input type="button" value="Seasonality" onclick="switchToAnotherTab('Sales Seasonality');" />    
+                    <input type="button" value="Spreadsheet" onclick="switchToAnotherTab('Crosstab');" />    
+                    <input type="button" value="Map" onclick="switchToAnotherTab('Global Sales and Profits');" />    
+                    <input type="button" value="Sub-Category" onclick="switchToAnotherTab('Sales by Sub-Category');" />    
+                    <input type="button" value="Customers" onclick="switchToAnotherTab('Customer Breakdown');" />
+                </div>
+                <br />
+   
+                <!-- /////////////// SELECT /////////////// -->
+                <!-- Select Portions of the map -->
+                <div id="SectionHeader" style="padding-top: 5px;">
+                    <u>(4 points) SELECT SECTION</u> (Must be on 'Map' tab)
+                </div>
+                <!-- Select 1 Country from the map -->
+                <div id="SelectMapPortions" style="padding-top: 5px;">
+                    Map Selections:
+                    <input type="button" value="North America" onclick="selectSingleValue('Country', 'United States');" />
+                </div>
+                <!-- Add multiple countries to your selection -->
+                <div id="AddValues" style="padding-top: 5px;">
+                    Add items to Selection:
+                    <input type="button" value="Add Canada & Mexico" onclick="addValuesToSelection('Country', ['Canada', 'Mexico']);" />
+                </div>
+                <!-- Remove items from your selection -->
+                <div id="RemoveValues" style="padding-top: 5px;">
+                    Remove items from selection:
+                    <input type="button" value="Loss in NA" onclick="removeFromSelection();" />
+                </div>
+                <!-- Clear all selections -->
+                <div id="ClearSelections" style="padding-top: 5px;">
+                    Clear all selections:
+                    <input type="button" value="Clear Selections" onclick="clearSelection();" />
+                </div>
+                <br />
+
+                <!-- /////////////// CHAIN CALLS /////////////// -->
+                <!-- Chain Calls example -->
+                <div id="SectionHeader" style="padding-top: 5px;">
+                    <u>(2 points) CHAIN CALLS SECTION</u> (Can be from any tab)
+                </div>
+                <!-- Chain Call -->
+                <div id="ChainCalls" style="padding-top: 5px;">
+                    Chain Commands:
+                    <input type="button" value="Chain Calls" onclick="switchTabsThenFilterThenSelectMarks();" />    
+                </div>
+                <!-- Error Handling -->
+                <div id="Error" style="padding-top: 5px;">
+                    Chain Error:
+                    <input type="button" value="Handle Error" onclick="triggerError();" />    
+                </div>
+                <br />
+
+                <!-- /////////////// SHEETS /////////////// -->
+                <!-- Working in different sheets within the workbook -->
+                <div id="SectionHeader" style="padding-top: 5px;">
+                    <u>(4 points) SHEETS SECTION</u> (Can be from any tab)
+                </div>
+                <!-- Alertbox displays all the sheets in the workbook -->
+                <div id="ShowSheets" style="padding-top: 5px;">
+                    Show Sheets in Workbook:
+                    <input type="button" value="Show Sheets" onclick="querySheets();" />    
+                </div>
+                <!-- Alertbox displays all the sheets in the dashboard -->
+                <div id="ShowSheetsDashboard" style="padding-top: 5px;">
+                    Show Sheets in Dashboard:
+                    <input type="button" value="Show Dashboard Sheets" onclick="queryDashboard();" />    
+                </div>
+                <!-- Resizes the dashboard to fit the allotted size -->
+                <div id="ResizeDashboard" style="padding-top: 5px;">
+                    Resize Dashboard:
+                    <input type="button" value="Resize Now" onclick="changeDashboardSize();" />    
+                </div>
+                <!-- Does work on multiple sheets while displaying the dashboard -->
+                <div id="WorkMultipleSheets" style="padding-top: 5px;">
+                    Work on Multiple Sheets:
+                    <input type="button" value="Do it Now" onclick="MultipleSelectionsOnDashboard();" />    
+                </div>
+                <br />
+
+                <!-- /////////////// TOOLBAR /////////////// -->
+                <!-- Allows the user to do Tableau Toolbar commands through the API -->
+                <div id="SectionHeader" style="padding-top: 5px;">
+                    <u>(5 points) TOOLBAR SECTION</u> (Can be from any tab)
+                </div>
+                <!-- Allows the user to export the CURRENT TAB as a PDF -->
+                <div id="ExportPDF" style="padding-top: 5px;">
+                    Export as PDF:
+                    <input type="button" value="Export" onclick="exportPDF();" />    
+                </div>
+                <!-- Allows the user to export the CURRENT TAB as an Image -->
+                <div id="ExportImage" style="padding-top: 5px;">
+                    Export as Image:
+                    <input type="button" value="Export" onclick="exportImage();" />    
+                </div>
+                <!-- Allows the user to export the DATA as a CSV -->
+                <div id="ExportCSV" style="padding-top: 5px;">
+                    Export Data as CSV:
+                    <input type="button" value="Export" onclick="exportCrossTab();" />    
+                </div>
+                <!-- Allows the user to export the SHEET as Data -->
+                <div id="ExportSheet" style="padding-top: 5px;">
+                    Export Data:
+                    <input type="button" value="Export" onclick="exportData();" />    
+                </div>
+                <!-- Will revert the workbook to it's Original Published State -->
+                <div id="RevertAll" style="padding-top: 5px;">
+                    Revert To Original State:
+                    <input type="button" value="Revert Now" onclick="revertAll();" />    
+                </div>
+                <br /><br />
+        </div>
+
+        <div id="RightSide" style="float: right;">
+            <!-- Holding the Tableau Charts -->
+            <div id="vizContainer"></div><br />
+            
+                
+            <!-- /////////////// EVENTS /////////////// -->
+                <!--  -->
+                <div id="SectionHeader" style="padding-top: 5px;">
+                    <u>(2 points) EVENTS SECTION</u>
+                </div>
+                <div id="markDetails" style="padding-top: 10px;">Information about selected marks displays here.</div>
+        </div>
+
+    </body>
+</html>
